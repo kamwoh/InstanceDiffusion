@@ -1,30 +1,26 @@
 import argparse
-import os
-
-import numpy as np
 import json
-import torch
-import torchvision
-from PIL import Image
+import os
+# Recognize Anything Model & Tag2Text
+import sys
 
 # Grounding DINO
 import groundingdino.datasets.transforms as T
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torchvision
+from PIL import Image
 from groundingdino.models import build_model
 from groundingdino.util.slconfig import SLConfig
 from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
-
 # segment anything
 from segment_anything import (
     build_sam,
     build_sam_hq,
     SamPredictor
-) 
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
+)
 
-# Recognize Anything Model & Tag2Text
-import sys
 sys.path.append('../Grounded-Segment-Anything')
 sys.path.append('../Grounded-Segment-Anything/Tag2Text')
 from Tag2Text.models import tag2text
@@ -38,9 +34,8 @@ from io import BytesIO
 # import nltk
 from lavis.models import load_model_and_preprocess
 from transformers import CLIPProcessor, CLIPModel
-from pycocotools import mask as mask_pycoco
 import pycocotools.mask as mask_util
-import webdataset as wds
+
 
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -52,10 +47,12 @@ class NpEncoder(json.JSONEncoder):
             return obj.tolist()
         return super(NpEncoder, self).default(obj)
 
+
 def encode_tensor_as_string(arr):
     if type(arr) != np.ndarray:
         arr = arr.data.cpu().numpy()
     return base64.b64encode(arr.tobytes()).decode('utf-8')
+
 
 # load BLIP and CLIP model
 def load_blip_clip():
@@ -75,11 +72,12 @@ def load_blip_clip():
 def preprocess_text(processor, input):
     if input == None:
         return None
-    inputs = processor(text=input,  return_tensors="pt", padding=True)
+    inputs = processor(text=input, return_tensors="pt", padding=True)
     inputs['input_ids'] = inputs['input_ids'].cuda()
-    inputs['pixel_values'] = torch.ones(1,3,224,224).cuda() # placeholder 
+    inputs['pixel_values'] = torch.ones(1, 3, 224, 224).cuda()  # placeholder
     inputs['attention_mask'] = inputs['attention_mask'].cuda()
     return inputs
+
 
 # get CLIP embeddings
 def get_clip_feature_text(model, processor, input):
@@ -92,13 +90,15 @@ def get_clip_feature_text(model, processor, input):
         feature = outputs.text_model_output.pooler_output
         return feature
 
+
 # generate caption using BLIP and get the CLIP embeddings
-def forward_blipv2(raw_image, category_name, bbox, blip_model, blip_vis_processors, clip_text_model, clip_text_processor):
+def forward_blipv2(raw_image, category_name, bbox, blip_model, blip_vis_processors, clip_text_model,
+                   clip_text_processor):
     device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
-    
+
     ### get instance caption using BLIP
-    area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) # bbox = (left, top, right, bottom)
-    if area >= 32*32:
+    area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])  # bbox = (left, top, right, bottom)
+    if area >= 32 * 32:
         # crop the image using bbox
         raw_image_cropped = raw_image.crop(bbox)
         raw_image_cropped = blip_vis_processors["eval"](raw_image_cropped).unsqueeze(0).to(device)
@@ -110,17 +110,21 @@ def forward_blipv2(raw_image, category_name, bbox, blip_model, blip_vis_processo
 
         ### get CLIP embeddings
         if category_name != None and category_name != '':
-            if category_name.lower() not in instance_caption.lower():            
+            if category_name.lower() not in instance_caption.lower():
                 instance_caption_all = category_name + '. ' + instance_caption
-        blip_clip_embeddings = encode_tensor_as_string(get_clip_feature_text(clip_text_model, clip_text_processor, instance_caption_all))
-        text_embedding_before = encode_tensor_as_string(get_clip_feature_text(clip_text_model, clip_text_processor, category_name))
+        blip_clip_embeddings = encode_tensor_as_string(
+            get_clip_feature_text(clip_text_model, clip_text_processor, instance_caption_all))
+        text_embedding_before = encode_tensor_as_string(
+            get_clip_feature_text(clip_text_model, clip_text_processor, category_name))
 
     else:
         instance_caption = category_name
         blip_clip_embeddings = None
-        text_embedding_before = encode_tensor_as_string(get_clip_feature_text(clip_text_model, clip_text_processor, category_name))
-    
+        text_embedding_before = encode_tensor_as_string(
+            get_clip_feature_text(clip_text_model, clip_text_processor, category_name))
+
     return instance_caption, blip_clip_embeddings, text_embedding_before
+
 
 def load_image(image_path):
     # load image
@@ -136,9 +140,11 @@ def load_image(image_path):
     image, _ = transform(image_pil, None)  # 3, h, w
     return image_pil, image
 
+
 # decode base64 to pillow image
 def decode_base64_to_pillow(image_b64):
     return Image.open(BytesIO(base64.b64decode(image_b64))).convert('RGB')
+
 
 # read images
 def read_image_from_json(filename):
@@ -147,6 +153,7 @@ def read_image_from_json(filename):
         data = json.load(f)
     img = decode_base64_to_pillow(data['image'])
     return img, data
+
 
 # apply image transformation
 def apply_img_transform(image_pil):
@@ -172,7 +179,7 @@ def load_model(model_config_path, model_checkpoint_path, device):
     return model
 
 
-def get_grounding_output(model, image, caption, box_threshold, text_threshold,device="cpu"):
+def get_grounding_output(model, image, caption, box_threshold, text_threshold, device="cpu"):
     caption = caption.lower()
     caption = caption.strip()
     if not caption.endswith("."):
@@ -211,7 +218,7 @@ def show_mask(mask, ax, random_color=False):
     if random_color:
         color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
     else:
-        color = np.array([30/255, 144/255, 255/255, 0.6])
+        color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
     h, w = mask.shape[-2:]
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
@@ -220,8 +227,9 @@ def show_mask(mask, ax, random_color=False):
 def show_box(box, ax, label):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
-    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2)) 
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
     ax.text(x0, y0, label)
+
 
 # convert binary mask to RLE
 def mask_2_rle(binary_mask):
@@ -229,29 +237,35 @@ def mask_2_rle(binary_mask):
     # area = mask_pycoco.area(binary_mask_encoded)
     # if area < 16:
     #     return None, None
-    rle = mask_util.encode(np.array(binary_mask[...,None], order="F", dtype="uint8"))[0]
+    rle = mask_util.encode(np.array(binary_mask[..., None], order="F", dtype="uint8"))[0]
     rle['counts'] = rle['counts'].decode('ascii')
     return rle
 
-def save_mask_data(output_dir, mask_list, box_list, label_list, file_name, image_pil, output, blip_model, blip_vis_processors, clip_text_model, clip_text_processor):
+
+def save_mask_data(output_dir, mask_list, box_list, label_list, file_name, image_pil, output, blip_model,
+                   blip_vis_processors, clip_text_model, clip_text_processor):
     value = 0  # 0 for background
 
     for label, box in zip(label_list, box_list):
         value += 1
         name, logit = label.split('(')
-        logit = logit[:-1] # the last is ')'
+        logit = logit[:-1]  # the last is ')'
 
-        mask = mask_list[value-1].cpu().numpy()[0] == True
+        mask = mask_list[value - 1].cpu().numpy()[0] == True
         rle = mask_2_rle(mask)
 
         box_xywh = [int(x) for x in box.numpy().tolist()]
         box_xywh[2] = box_xywh[2] - box_xywh[0]
         box_xywh[3] = box_xywh[3] - box_xywh[1]
 
-        anno = get_base_anno_dict(is_stuff=0, is_thing=1, bbox=box_xywh, pred_score=float(logit), mask_value=value, rle=rle, category_name=name, area=box_xywh[-1]*box_xywh[-2])
+        anno = get_base_anno_dict(is_stuff=0, is_thing=1, bbox=box_xywh, pred_score=float(logit), mask_value=value,
+                                  rle=rle, category_name=name, area=box_xywh[-1] * box_xywh[-2])
         RGB_image = image_pil.convert('RGB')
         x1y1x2y2 = [int(x) for x in box.numpy().tolist()]
-        instance_caption, blip_clip_embeddings, text_embedding_before = forward_blipv2(RGB_image, name, x1y1x2y2, blip_model, blip_vis_processors, clip_text_model, clip_text_processor)
+        instance_caption, blip_clip_embeddings, text_embedding_before = forward_blipv2(RGB_image, name, x1y1x2y2,
+                                                                                       blip_model, blip_vis_processors,
+                                                                                       clip_text_model,
+                                                                                       clip_text_processor)
         anno['text_embedding_before'] = text_embedding_before
         if blip_clip_embeddings != None:
             anno['caption'] = instance_caption
@@ -262,11 +276,13 @@ def save_mask_data(output_dir, mask_list, box_list, label_list, file_name, image
         json.dump(output, f)
         print("Saved {}/label_{}.json".format(output_dir, file_name))
 
+
 # convert PIL image to base64
 def encode_pillow_to_base64(image):
     buffer = BytesIO()
     image.save(buffer, format="JPEG")
     return base64.b64encode(buffer.getvalue()).decode('utf-8')
+
 
 def get_base_output_dict(image, dataset_name, image_path, data=None):
     output = {}
@@ -290,7 +306,7 @@ def get_base_output_dict(image, dataset_name, image_path, data=None):
         if 'image' in data:
             output['image'] = data['image']
     else:
-        output['file_name'] = image_path # image_paths[i]
+        output['file_name'] = image_path  # image_paths[i]
         output['is_det'] = 1
         output['image'] = encode_pillow_to_base64(image.convert('RGB'))
     output['dataset_name'] = dataset_name
@@ -298,6 +314,7 @@ def get_base_output_dict(image, dataset_name, image_path, data=None):
     # annos for all instances
     output['annos'] = []
     return output
+
 
 def get_base_anno_dict(is_stuff, is_thing, bbox, pred_score, mask_value, rle, category_name, area):
     anno = {
@@ -319,6 +336,7 @@ def get_base_anno_dict(is_stuff, is_thing, bbox, pred_score, mask_value, rle, ca
         "area": area
     }
     return anno
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Caption Generation script', add_help=False)
@@ -354,12 +372,13 @@ def get_args_parser():
     parser.add_argument("--iou_threshold", type=float, default=0.5, help="iou threshold")
 
     parser.add_argument("--device", type=str, default="cpu", help="running on cpu only!, default=False")
-    parser.add_argument("--train_data_path", type=str, required=True, help="path to the json file with image path and image caption")
+    parser.add_argument("--train_data_path", type=str, required=True,
+                        help="path to the json file with image path and image caption")
 
     return parser
 
-def main(args):
 
+def main(args):
     # cfg
     config_file = args.config  # change the path of the model config file
     ram_checkpoint = args.ram_checkpoint  # change the path of the model
@@ -376,21 +395,21 @@ def main(args):
     text_threshold = args.text_threshold
     iou_threshold = args.iou_threshold
     device = args.device
-    
+
     # load model
     model = load_model(config_file, grounded_checkpoint, device=device)
     # initialize Recognize Anything Model
     normalize = TS.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225])
+                             std=[0.229, 0.224, 0.225])
     transform = TS.Compose([
-                    TS.Resize((384, 384)),
-                    TS.ToTensor(), normalize
-                ])
+        TS.Resize((384, 384)),
+        TS.ToTensor(), normalize
+    ])
 
     # load model
     ram_model = tag2text.ram(pretrained=ram_checkpoint,
-                                        image_size=384,
-                                        vit='swin_l')
+                             image_size=384,
+                             vit='swin_l')
     # threshold for tagging
     # we reduce the threshold to obtain more tags
     ram_model.eval()
@@ -402,7 +421,7 @@ def main(args):
         predictor = SamPredictor(build_sam_hq(checkpoint=sam_hq_checkpoint).to(device))
     else:
         predictor = SamPredictor(build_sam(checkpoint=sam_checkpoint).to(device))
-    
+
     # load BLIP and CLIP model
     print("Initialize BLIP and CLIP model")
     blip_model, blip_vis_processors, clip_text_model, clip_text_processor = load_blip_clip()
@@ -434,7 +453,7 @@ def main(args):
 
     # iterate over all images
     for image_path, image_caption in zip(image_paths[start_idx:end_idx], image_captions[start_idx:end_idx]):
-        img_meta_data = {} # store image meta data
+        img_meta_data = {}  # store image meta data
         # dataset = wds.WebDataset([tar]).decode("pil")
         img_name_base = image_path.split("/")[-1].split(".")[0]
 
@@ -446,7 +465,7 @@ def main(args):
 
         # save the image caption
         img_meta_data['caption'] = image_caption
-        
+
         # save file name
         file_name = img_name_base
         img_meta_data['file_name'] = image_path
@@ -460,12 +479,12 @@ def main(args):
 
         # run RAM model
         raw_image = image_pil.resize((384, 384))
-        raw_image  = transform(raw_image).unsqueeze(0).to(device)
-        res = inference_ram.inference(raw_image , ram_model)
+        raw_image = transform(raw_image).unsqueeze(0).to(device)
+        res = inference_ram.inference(raw_image, ram_model)
 
         # Currently ", " is better for detecting single tags
         # while ". " is a little worse in some case
-        tags=res[0].replace(' |', ',')
+        tags = res[0].replace(' |', ',')
 
         # run grounding dino model
         boxes_filt, scores, pred_phrases = get_grounding_output(
@@ -473,7 +492,7 @@ def main(args):
         )
         image = np.array(image_pil)
         predictor.set_image(image)
-        
+
         size = image_pil.size
         H, W = size[1], size[0]
         for i in range(boxes_filt.size(0)):
@@ -493,10 +512,10 @@ def main(args):
 
         try:
             masks, _, _ = predictor.predict_torch(
-                point_coords = None,
-                point_labels = None,
-                boxes = transformed_boxes.to(device),
-                multimask_output = False,
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes.to(device),
+                multimask_output=False,
             )
         except:
             continue
@@ -504,5 +523,6 @@ def main(args):
         num_images += 1
 
         # save mask data
-        save_mask_data(output_dir, masks, boxes_filt, pred_phrases, file_name, image_pil, output, blip_model, blip_vis_processors, clip_text_model, clip_text_processor)
+        save_mask_data(output_dir, masks, boxes_filt, pred_phrases, file_name, image_pil, output, blip_model,
+                       blip_vis_processors, clip_text_model, clip_text_processor)
         print("Processed {} image; {}".format(num_images, file_name))

@@ -1,28 +1,19 @@
-import os 
-import torch 
-import random
 import base64
-import numpy as np
-import torchvision
-from io import BytesIO
-from collections import Counter
-from PIL import Image, ImageDraw
-from tkinter.messagebox import NO
-import torchvision.transforms as transforms
-from .base_dataset import recalculate_box_and_verify_if_valid, recalculate_scribbles
 import math
-import pandas as pd
-import cv2 
-from tqdm import tqdm
-from pycocotools import _mask as coco_mask
-import base64
-import typing as t
-import zlib
-import json
-from itertools import groupby
-from skimage import measure
+import random
+from collections import Counter
+from io import BytesIO
+
+import numpy as np
+import torch
+import torchvision
 from PIL import Image
-from pycocotools import mask
+from PIL import ImageDraw
+from pycocotools import _mask as coco_mask
+from skimage import measure
+
+from .base_dataset import recalculate_box_and_verify_if_valid, recalculate_scribbles
+
 
 # import nltk
 # from nltk.corpus import stopwords
@@ -37,10 +28,12 @@ def decode_tensor_from_string(arr_str, use_tensor=True):
         arr = torch.from_numpy(arr)
     return arr
 
+
 def close_contour(contour):
     if not np.array_equal(contour[0], contour[-1]):
         contour = np.vstack((contour, contour[0]))
     return contour
+
 
 # convert binay mask to polygon format
 def binary_mask_to_polygon(binary_mask, tolerance=0):
@@ -71,10 +64,12 @@ def binary_mask_to_polygon(binary_mask, tolerance=0):
 
     return polygons
 
+
 def decodeToBinaryMask(rle):
     mask = coco_mask.decode([rle])
-    binaryMask = mask.astype('bool') 
+    binaryMask = mask.astype('bool')
     return binaryMask
+
 
 def equally_spaced_sampling_with_replacement(points_list, sample_size):
     """
@@ -96,26 +91,28 @@ def equally_spaced_sampling_with_replacement(points_list, sample_size):
             # Calculate the index with wrapping around the list
             index = (i * len(points_list)) // sample_size % len(points_list)
             sampled_points.append(points_list[index])
-    
+
     return sampled_points
+
 
 def reorder_scribbles(scribbles):
     ### order the points by their distance to (0, 0)
     center = np.array([0, 0])
     scribbles = sorted(scribbles, key=lambda x: np.linalg.norm(np.array(x) - center))
-    scribbles = equally_spaced_sampling_with_replacement(scribbles, 20)    
+    scribbles = equally_spaced_sampling_with_replacement(scribbles, 20)
     scribbles = sorted(scribbles, key=lambda x: np.linalg.norm(np.array(x) - center))
     return scribbles
 
+
 def sample_random_points_from_mask(mask, k):
-    mask = mask[:,:,0]
+    mask = mask[:, :, 0]
     # Find the coordinates of non-zero pixels in the binary mask
     nonzero_coords = np.transpose(np.nonzero(mask))
 
     # Randomly sample 'k' points
     # return all zeros if there is no non-zero pixel
     if len(nonzero_coords) == 0:
-        xy_points = [0 for _ in range(k*2)]
+        xy_points = [0 for _ in range(k * 2)]
         return xy_points
 
     # randomly sample with replacement if there are not enough non-zero pixels    
@@ -129,7 +126,7 @@ def sample_random_points_from_mask(mask, k):
     ### order the points by their distance to (0, 0)
     # center = np.array([mask.shape[0] // 2, mask.shape[1] // 2])
     center = np.array([0, 0])
-    sampled_points = sorted(sampled_points, key=lambda x: np.linalg.norm(np.array(x) - center)) # np.linalg.norm
+    sampled_points = sorted(sampled_points, key=lambda x: np.linalg.norm(np.array(x) - center))  # np.linalg.norm
 
     # concatenate x and y coordinates and return them as a list
     # [x1,y1,x2,y2,...,x_k,y_k]
@@ -139,16 +136,18 @@ def sample_random_points_from_mask(mask, k):
         xy_points.append(float(x[0]))
     return xy_points
 
+
 # convert numpy array of bool mask to float mask
 def binary_mask_to_int(binary_mask):
     return binary_mask.astype(np.int32)
+
 
 # uniformly sample points from the mask
 def sample_sparse_points(binary_mask, k, return_2d=False):
     # Find the coordinates of non-zero pixels in the binary mask
     nonzero_coords = np.array(np.nonzero(binary_mask))
     if len(nonzero_coords) == 0:
-        xy_points = [0 for _ in range(k*2)]
+        xy_points = [0 for _ in range(k * 2)]
         return xy_points
 
     # Calculate the total number of non-zero pixels
@@ -199,14 +198,14 @@ def sample_uniform_sparse_points(binary_mask, k):
         # rank the points by their distance to the mean of the foreground_indices
         center = np.mean(foreground_indices, axis=0)
         # print(center)
-        foreground_indices = sorted(foreground_indices, key=lambda x: np.linalg.norm(x - center)) # np.linalg.norm
+        foreground_indices = sorted(foreground_indices, key=lambda x: np.linalg.norm(x - center))  # np.linalg.norm
         # Calculate the number of points to select from each segment
         points_per_segment = len(foreground_indices) // k
 
         ####Step 2: Randomly select one point from each segment
         # print(k)
         for i in range(k):
-            segment_points = foreground_indices[i * points_per_segment : (i + 1) * points_per_segment]
+            segment_points = foreground_indices[i * points_per_segment: (i + 1) * points_per_segment]
             # choose the middle point in each segment
             random_point = segment_points[len(segment_points) // 2]
             # random_point = random.choice(segment_points)
@@ -214,10 +213,11 @@ def sample_uniform_sparse_points(binary_mask, k):
 
     return selected_points
 
+
 def sample_sparse_points_from_mask(mask, k):
     n_points = k
-    n_polygons = n_points // 2 # half points should be sampled from the polygons
-    mask = mask[:,:,0]
+    n_polygons = n_points // 2  # half points should be sampled from the polygons
+    mask = mask[:, :, 0]
     # sample sparse points from the polygons (boundary)
     polygons = binary_mask_to_polygon(mask, tolerance=0.0)
     # concatenate polygons to a single list
@@ -226,7 +226,7 @@ def sample_sparse_points_from_mask(mask, k):
         polygons_single += polygon
     if len(polygons_single) != 0:
         # uniformly sample points from the polygon
-        polygons_single = np.array(polygons_single).reshape(-1,2)
+        polygons_single = np.array(polygons_single).reshape(-1, 2)
         indexes = np.linspace(0, polygons_single.shape[0] - 1, n_polygons)
         indexes = list([int(i) for i in indexes])
 
@@ -244,7 +244,7 @@ def sample_sparse_points_from_mask(mask, k):
 
     # order the points by their distance to (0, 0)
     center = np.array([0, 0])
-    xy_points = sorted(xy_points, key=lambda x: np.linalg.norm(np.array(x) - center)) # np.linalg.norm
+    xy_points = sorted(xy_points, key=lambda x: np.linalg.norm(np.array(x) - center))  # np.linalg.norm
 
     # return the sampled points
     sampled_points = []
@@ -253,25 +253,26 @@ def sample_sparse_points_from_mask(mask, k):
         sampled_points.append(x[1])
     return sampled_points
 
+
 def get_polygons_from_mask(mask, tolerance=0, n_polygon_points=256):
     mask = binary_mask_to_int(mask)
     return_polygons = True
     if return_polygons:
         # convert float mask to polygons
-        polygons = binary_mask_to_polygon(mask[:,:,0], tolerance=tolerance)
+        polygons = binary_mask_to_polygon(mask[:, :, 0], tolerance=tolerance)
 
         # return all zeros if there is no polygon
         if len(polygons) == 0:
-            polygons = [0 for _ in range(n_polygon_points*2)]
+            polygons = [0 for _ in range(n_polygon_points * 2)]
             return polygons
-        
+
         # concatenate polygons to a single list
         polygon = []
         for p in polygons:
             polygon += p
 
         # uniformly sample points the polygon
-        polygon = np.array(polygon).reshape(-1,2)
+        polygon = np.array(polygon).reshape(-1, 2)
         indexes = np.linspace(0, polygon.shape[0] - 1, n_polygon_points)
         indexes = [int(i) for i in indexes]
         polygon = polygon[indexes].reshape(-1)
@@ -280,6 +281,7 @@ def get_polygons_from_mask(mask, tolerance=0, n_polygon_points=256):
     else:
         sampled_points = sample_sparse_points(mask, n_polygon_points)
         return sampled_points
+
 
 def decode_item(item):
     # convert string to dict
@@ -311,7 +313,7 @@ def decode_item(item):
             if polygons != None:
                 anno['polygons'] = polygons
             else:
-                anno['polygons'] = [0 for _ in range(n_polygon_points*2)]
+                anno['polygons'] = [0 for _ in range(n_polygon_points * 2)]
     if len(segs) > 0:
         item['segs'] = np.stack(segs).astype(np.float32).squeeze()
     return item
@@ -330,8 +332,8 @@ def clean_data(data):
         data_info.pop("original_img_id", None)
         data_info.pop("original_id", None)
         data_info.pop("sentence_id", None)  # sentence id for each image (multiple sentences for one image)
-        data_info.pop("dataset_name", None)  
-        data_info.pop("data_source", None) 
+        data_info.pop("dataset_name", None)
+        data_info.pop("data_source", None)
         data_info["data_id"] = data_info.pop("id")
 
 
@@ -342,16 +344,17 @@ def clean_annotations(annotations):
         anno_info.pop("area", None)
         anno_info["data_id"] = anno_info.pop("image_id")
 
+
 def draw_box(img, boxes):
     draw = ImageDraw.Draw(img)
     for box in boxes:
-        draw.rectangle([box[0], box[1], box[2], box[3]], outline ="red", width=2) # x0 y0 x1 y1 
-    return img 
+        draw.rectangle([box[0], box[1], box[2], box[3]], outline="red", width=2)  # x0 y0 x1 y1
+    return img
 
 
 def xyhw2xyxy(box):
     x0, y0, w, h = box
-    return [ x0, y0, x0+w, y0+h ]
+    return [x0, y0, x0 + w, y0 + h]
 
 
 def make_a_sentence_count_nums(obj_names):
@@ -366,9 +369,8 @@ def make_a_sentence_count_nums(obj_names):
 
 
 def make_a_sentence(obj_names, clean=False):
-
     if clean:
-        obj_names = [ name[:-6] if ("-other" in name) else name for name in obj_names]
+        obj_names = [name[:-6] if ("-other" in name) else name for name in obj_names]
 
     caption = ""
     tokens_positive = []
@@ -378,11 +380,11 @@ def make_a_sentence(obj_names, clean=False):
         end_len = len(caption)
         caption += ", "
         tokens_positive.append(
-            [[start_len, end_len]] # in real caption, positive tokens can be disjoint, thus using list of list
+            [[start_len, end_len]]  # in real caption, positive tokens can be disjoint, thus using list of list
         )
-    caption = caption[:-2] # remove last ", "
+    caption = caption[:-2]  # remove last ", "
 
-    return caption #, tokens_positive
+    return caption  # , tokens_positive
 
 
 def mask_for_random_drop_text_or_image_feature(masks, random_drop_embedding):
@@ -404,17 +406,17 @@ def mask_for_random_drop_text_or_image_feature(masks, random_drop_embedding):
     """
     N = masks.shape[0]
 
-    if random_drop_embedding=='both':
-        temp_mask = torch.ones(2,N)
+    if random_drop_embedding == 'both':
+        temp_mask = torch.ones(2, N)
         for i in range(N):
-            if random.uniform(0, 1) < 0.5: # else keep both features 
-                idx = random.sample([0,1], 1)[0] # randomly choose to drop image or text feature 
-                temp_mask[idx,i] = 0 
-        image_masks = temp_mask[0]*masks
-        text_masks = temp_mask[1]*masks
-    
-    if random_drop_embedding=='image':
-        image_masks = masks*(torch.rand(N)>0.5)*1
+            if random.uniform(0, 1) < 0.5:  # else keep both features
+                idx = random.sample([0, 1], 1)[0]  # randomly choose to drop image or text feature
+                temp_mask[idx, i] = 0
+        image_masks = temp_mask[0] * masks
+        text_masks = temp_mask[1] * masks
+
+    if random_drop_embedding == 'image':
+        image_masks = masks * (torch.rand(N) > 0.5) * 1
         text_masks = masks
 
     return image_masks, text_masks
@@ -427,7 +429,7 @@ def project(x, projection_matrix):
     defined in CLIP (out_dim, in_dim), thus we need to apply transpose below.  
     this function will return the CLIP feature (without normalziation)
     """
-    return x@torch.transpose(projection_matrix, 0, 1)
+    return x @ torch.transpose(projection_matrix, 0, 1)
 
 
 def inv_project(y, projection_matrix):
@@ -440,26 +442,26 @@ def inv_project(y, projection_matrix):
     Note: to make sure getting the correct penultimate feature, the input y should not be normalized. 
     If it is normalized, then the result will be scaled by CLIP feature norm, which is unknown.   
     """
-    return y@torch.transpose(torch.linalg.inv(projection_matrix), 0, 1)
+    return y @ torch.transpose(torch.linalg.inv(projection_matrix), 0, 1)
 
 
 class decode:
-    def __init__(self, which_layer_text='before', 
-                which_layer_image="after_reproject",
-                prob_use_caption=1,
-                random_drop_embedding='none',
-                image_size=512, 
-                min_box_size=0.01,
-                max_boxes_per_data=8,
-                max_images=None, # set as 30K used to eval
-                random_crop = False,
-                random_flip = True,
-                count_dups_make_a_sentence=False,
-                random_blip=0.0,
-                return_att_masks=False,
-                add_inst_cap_2_global=False,
-                ):
-        self.which_layer_text  = which_layer_text
+    def __init__(self, which_layer_text='before',
+                 which_layer_image="after_reproject",
+                 prob_use_caption=1,
+                 random_drop_embedding='none',
+                 image_size=512,
+                 min_box_size=0.01,
+                 max_boxes_per_data=8,
+                 max_images=None,  # set as 30K used to eval
+                 random_crop=False,
+                 random_flip=True,
+                 count_dups_make_a_sentence=False,
+                 random_blip=0.0,
+                 return_att_masks=False,
+                 add_inst_cap_2_global=False,
+                 ):
+        self.which_layer_text = which_layer_text
         self.which_layer_image = which_layer_image
         self.prob_use_caption = prob_use_caption
         self.random_drop_embedding = random_drop_embedding
@@ -476,7 +478,7 @@ class decode:
 
         self.add_inst_cap_2_global = add_inst_cap_2_global
 
-        assert which_layer_text in ['before','after']
+        assert which_layer_text in ['before', 'after']
         assert which_layer_image in ['after', 'after_renorm', 'after_reproject']
         assert random_drop_embedding in ['none', 'both', 'image']
         # Last linear layer used in CLIP text encoder. Here we use it to map CLIP image embedding into penultimate text space.
@@ -492,19 +494,19 @@ class decode:
             return image_embedding
         elif self.which_layer_image == 'after_renorm':
             # same as before but normalize it to 28.7, which is empirically same as text penultimate feature norm.
-            return image_embedding*28.7
+            return image_embedding * 28.7
         elif self.which_layer_image == 'after_reproject':
             # Re-project the CLIP image feature into text penultimate space using text linear matrix and norm it into 28.7
-            image_embedding = project( image_embedding.unsqueeze(0), self.projection_matrix.T )
+            image_embedding = project(image_embedding.unsqueeze(0), self.projection_matrix.T)
             image_embedding = image_embedding.squeeze(0)
-            image_embedding = image_embedding / image_embedding.norm() 
-            image_embedding = image_embedding * 28.7 
+            image_embedding = image_embedding / image_embedding.norm()
+            image_embedding = image_embedding * 28.7
             return image_embedding
 
     def vis_getitem_data(self, out=None, return_tensor=False, name="res.jpg", print_caption=True):
 
-        img = torchvision.transforms.functional.to_pil_image( out["image"]*0.5+0.5 )
-        canvas = torchvision.transforms.functional.to_pil_image( torch.ones_like(out["image"]) )
+        img = torchvision.transforms.functional.to_pil_image(out["image"] * 0.5 + 0.5)
+        canvas = torchvision.transforms.functional.to_pil_image(torch.ones_like(out["image"]))
         W, H = img.size
 
         if print_caption:
@@ -514,36 +516,36 @@ class decode:
 
         boxes = []
         for box in out["boxes"]:
-            x0,y0,x1,y1 = box
-            boxes.append( [float(x0*W), float(y0*H), float(x1*W), float(y1*H)] )
+            x0, y0, x1, y1 = box
+            boxes.append([float(x0 * W), float(y0 * H), float(x1 * W), float(y1 * H)])
         img = draw_box(img, boxes)
-        
+
         if return_tensor:
-            return  torchvision.transforms.functional.to_tensor(img)
+            return torchvision.transforms.functional.to_tensor(img)
         else:
-            img.save(name)   
+            img.save(name)
 
     def sample_dic_meta(self):
-        max_boxes_per_data = 1 # self.max_boxes_per_data
+        max_boxes_per_data = 1  # self.max_boxes_per_data
         boxes_ = torch.zeros(max_boxes_per_data, 4)
         masks_ = torch.zeros(max_boxes_per_data)
-        segs_ =  torch.zeros(max_boxes_per_data, self.image_size, self.image_size)
-        points_ =  torch.zeros(max_boxes_per_data, 2)
+        segs_ = torch.zeros(max_boxes_per_data, self.image_size, self.image_size)
+        points_ = torch.zeros(max_boxes_per_data, 2)
 
-        text_embeddings_ =  torch.zeros(max_boxes_per_data, self.embedding_len)
+        text_embeddings_ = torch.zeros(max_boxes_per_data, self.embedding_len)
         text_masks_ = torch.zeros(max_boxes_per_data)
         image_masks_ = torch.zeros(max_boxes_per_data)
         caption_ = ""
 
         dict_sample = {
-            "boxes" : boxes_,
-            "masks" : masks_,
-            "text_masks" : text_masks_,
-            "image_masks" : image_masks_,
-            "text_embeddings"  : text_embeddings_,
-            "segs" : segs_,
-            "points" : points_,
-            "caption" : caption_,
+            "boxes": boxes_,
+            "masks": masks_,
+            "text_masks": text_masks_,
+            "image_masks": image_masks_,
+            "text_embeddings": text_embeddings_,
+            "segs": segs_,
+            "points": points_,
+            "caption": caption_,
         }
         if self.return_att_masks:
             dict_sample["att_masks"] = torch.zeros(max_boxes_per_data, 64, 64)
@@ -553,20 +555,20 @@ class decode:
     def transform_image(self, pil_image, segs=None):
         if self.random_crop:
             assert False
-            arr = random_crop_arr(pil_image, self.image_size) 
+            arr = random_crop_arr(pil_image, self.image_size)
         else:
             arr, info, segs = center_crop_arr(pil_image, self.image_size, segs=segs)
-		
+
         info["performed_flip"] = False
-        if self.random_flip and random.random()<0.5:
+        if self.random_flip and random.random() < 0.5:
             arr = arr[:, ::-1]
             info["performed_flip"] = True
             if segs is not None:
                 segs = np.flip(segs, axis=2).copy()
-		
+
         arr = arr.astype(np.float32) / 127.5 - 1
-        arr = np.transpose(arr, [2,0,1])
-        
+        arr = np.transpose(arr, [2, 0, 1])
+
         if segs is not None:
             return torch.tensor(arr), info, torch.tensor(segs)
         else:
@@ -574,7 +576,8 @@ class decode:
 
     def __call__(self, raw_item):
         raw_item = decode_item(raw_item)
-        is_det = raw_item.get('is_det', False) # if it is from detection (such as o365), then we will make a pseudo caption
+        is_det = raw_item.get('is_det',
+                              False)  # if it is from detection (such as o365), then we will make a pseudo caption
         out = {}
 
         # -------------------- id and image ------------------- # 
@@ -587,16 +590,16 @@ class decode:
 
         # -------------------- grounding token ------------------- # 
         annos = raw_item['annos']
-        
+
         areas = []
         all_boxes = []
         all_masks = []
         all_text_embeddings = []
         all_obj_captions = []
-        all_obj_scribbles = []        
-        n_scribble_points = 20 # defined by n_scribble_points in decode_item()
+        all_obj_scribbles = []
+        n_scribble_points = 20  # defined by n_scribble_points in decode_item()
         all_obj_polygons = []
-        n_polygon_points = 256 # defined by n_polygon_points in decode_item()
+        n_polygon_points = 256  # defined by n_polygon_points in decode_item()
         all_obj_segs = []
         all_points = []
         if is_det:
@@ -605,27 +608,28 @@ class decode:
 
         for ann_idx, anno in enumerate(annos):
             x, y, w, h = anno['bbox']
-            valid, (x0, y0, x1, y1) = recalculate_box_and_verify_if_valid(x, y, w, h, trans_info, self.image_size, self.min_box_size)
+            valid, (x0, y0, x1, y1) = recalculate_box_and_verify_if_valid(x, y, w, h, trans_info, self.image_size,
+                                                                          self.min_box_size)
 
             if valid:
-                areas.append(  (x1-x0)*(y1-y0)  )
-                all_boxes.append( torch.tensor([x0,y0,x1,y1]) / self.image_size ) # scale to 0-1
-                all_points.append( torch.tensor([(x0+x1)/2.0, (y0+y1)/2.0]) / self.image_size )
+                areas.append((x1 - x0) * (y1 - y0))
+                all_boxes.append(torch.tensor([x0, y0, x1, y1]) / self.image_size)  # scale to 0-1
+                all_points.append(torch.tensor([(x0 + x1) / 2.0, (y0 + y1) / 2.0]) / self.image_size)
                 all_masks.append(1)
 
                 if 'scribbles' in anno:
                     scribbles_recalculated = recalculate_scribbles(anno['scribbles'], trans_info, self.image_size)
-                    all_obj_scribbles.append( torch.tensor(scribbles_recalculated) / self.image_size )
+                    all_obj_scribbles.append(torch.tensor(scribbles_recalculated) / self.image_size)
                 else:
-                    all_obj_scribbles.append( torch.zeros(n_scribble_points*2) )
+                    all_obj_scribbles.append(torch.zeros(n_scribble_points * 2))
 
                 if 'polygons' in anno:
-                    polygons_recalculated = recalculate_scribbles(anno['polygons'], trans_info, self.image_size) 
-                    all_obj_polygons.append( torch.tensor(polygons_recalculated) / self.image_size )
+                    polygons_recalculated = recalculate_scribbles(anno['polygons'], trans_info, self.image_size)
+                    all_obj_polygons.append(torch.tensor(polygons_recalculated) / self.image_size)
                     # NOTE: New Seg
                     all_obj_segs.append(segs_tf[ann_idx])
                 else:
-                    all_obj_polygons.append( torch.zeros(n_polygon_points*2) )
+                    all_obj_polygons.append(torch.zeros(n_polygon_points * 2))
                     # NOTE: New Seg
                     all_obj_segs.append(torch.zeros(self.image_size, self.image_size))
 
@@ -633,18 +637,18 @@ class decode:
                 save_vis_box_scribble_polygons = False
                 # draw box and scribbles on image if save_box_scribble and "res.jpg" does not exist
                 if save_vis_box_scribble_polygons and 'scribbles' in anno and 'polygons' in anno:
-                    img = torchvision.transforms.functional.to_pil_image( image_tensor*0.5+0.5 )
+                    img = torchvision.transforms.functional.to_pil_image(image_tensor * 0.5 + 0.5)
                     # canvas = torchvision.transforms.functional.to_pil_image( torch.ones_like(image_tensor) )
                     # W, H = img.size
-                    img = draw_box(img, [[float(x0),float(y0),float(x1),float(y1)]])
+                    img = draw_box(img, [[float(x0), float(y0), float(x1), float(y1)]])
                     for i in range(n_scribble_points):
-                        x, y = int(scribbles_recalculated[i*2]), int(scribbles_recalculated[i*2+1])
+                        x, y = int(scribbles_recalculated[i * 2]), int(scribbles_recalculated[i * 2 + 1])
                         draw = ImageDraw.Draw(img)
-                        draw.ellipse((x-2, y-2, x+2, y+2), fill='red', outline='red')
+                        draw.ellipse((x - 2, y - 2, x + 2, y + 2), fill='red', outline='red')
                     for i in range(n_polygon_points):
-                        x, y = int(polygons_recalculated[i*2]), int(polygons_recalculated[i*2+1])
+                        x, y = int(polygons_recalculated[i * 2]), int(polygons_recalculated[i * 2 + 1])
                         draw = ImageDraw.Draw(img)
-                        draw.ellipse((x-2, y-2, x+2, y+2), fill='blue', outline='blue')
+                        draw.ellipse((x - 2, y - 2, x + 2, y + 2), fill='blue', outline='blue')
                     img.save("box_scribble_polygons_vis.jpg")
 
                 if 'blip_clip_embeddings' in anno and random.uniform(0, 1) < self.random_blip:
@@ -669,17 +673,17 @@ class decode:
         boxes = torch.zeros(self.max_boxes_per_data, 4)
         points = torch.zeros(self.max_boxes_per_data, 2)
         masks = torch.zeros(self.max_boxes_per_data)
-        scribbles = torch.zeros(self.max_boxes_per_data, n_scribble_points*2 )
-        polygons = torch.zeros(self.max_boxes_per_data, n_polygon_points*2 )
+        scribbles = torch.zeros(self.max_boxes_per_data, n_scribble_points * 2)
+        polygons = torch.zeros(self.max_boxes_per_data, n_polygon_points * 2)
         # NOTE: New Seg
         segs = torch.zeros(self.max_boxes_per_data, self.image_size, self.image_size)
 
-        text_embeddings =  torch.zeros(self.max_boxes_per_data, self.embedding_len)
+        text_embeddings = torch.zeros(self.max_boxes_per_data, self.embedding_len)
 
         if self.return_att_masks:
             att_masks = torch.zeros(self.max_boxes_per_data, 64, 64)
 
-        selected_captions = [""]*self.max_boxes_per_data
+        selected_captions = [""] * self.max_boxes_per_data
         if is_det:
             category_names = []
 
@@ -692,14 +696,15 @@ class decode:
             # NOTE: New Seg
             segs[i] = all_obj_segs[idx]
 
-            text_embeddings[i] =  all_text_embeddings[idx]
+            text_embeddings[i] = all_text_embeddings[idx]
             if is_det:
                 category_names.append(all_category_names[idx])
                 selected_captions[i] = all_obj_captions[idx]
             if self.return_att_masks:
                 box = boxes[i]
                 image_size = 64
-                x1, y1, x2, y2 = int(np.round(box[0]*image_size)), int(np.round(box[1]*image_size)), int(np.round(box[2]*image_size)), int(np.round(box[3]*image_size))
+                x1, y1, x2, y2 = int(np.round(box[0] * image_size)), int(np.round(box[1] * image_size)), int(
+                    np.round(box[2] * image_size)), int(np.round(box[3] * image_size))
                 att_masks[i][x1:x2, y1:y2] = 1
 
         if self.random_drop_embedding != 'none':
@@ -710,18 +715,18 @@ class decode:
 
         out["boxes"] = boxes
         out["points"] = points
-        out["masks"] = masks # indicating how many valid objects for this image-text data
+        out["masks"] = masks  # indicating how many valid objects for this image-text data
         out["scribbles"] = scribbles
         out["polygons"] = polygons
         out["segs"] = segs
-        out["image_masks"] = image_masks # indicating how many objects still there after random dropping applied
-        out["text_masks"] = text_masks # indicating how many objects still there after random dropping applied
-        out["text_embeddings"] =  text_embeddings
+        out["image_masks"] = image_masks  # indicating how many objects still there after random dropping applied
+        out["text_masks"] = text_masks  # indicating how many objects still there after random dropping applied
+        out["text_embeddings"] = text_embeddings
         out["obj_captions"] = selected_captions
         if self.return_att_masks:
-            out["att_masks"] =  att_masks          
+            out["att_masks"] = att_masks
 
-        # get instance-level inputs
+            # get instance-level inputs
         out["instance_meta"] = [self.sample_dic_meta() for _ in range(self.max_boxes_per_data)]
 
         for i, idx in enumerate(wanted_idxs):
@@ -752,9 +757,29 @@ class decode:
                         if inst_cap != "":
                             out["caption"] += ". {}".format(inst_cap)
                             # stop words with NLTK, copied from: https://www.geeksforgeeks.org/removing-stop-words-nltk-python/
-                            stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "you're", "you've", "you'll", "you'd", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "she's", "her", "hers", "herself", "it", "it's", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "that'll", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "don't", "should", "should've", "now", "d", "ll", "m", "o", "re", "ve", "y", "ain", "aren", "aren't", "couldn", "couldn't", "didn", "didn't", "doesn", "doesn't", "hadn", "hadn't", "hasn", "hasn't", "haven", "haven't", "isn", "isn't", "ma", "mightn", "mightn't", "mustn", "mustn't", "needn", "needn't", "shan", "shan't", "shouldn", "shouldn't", "wasn", "wasn't", "weren", "weren't", "won", "won't", "wouldn", "wouldn't"]
+                            stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "you're",
+                                          "you've", "you'll", "you'd", "your", "yours", "yourself", "yourselves", "he",
+                                          "him", "his", "himself", "she", "she's", "her", "hers", "herself", "it",
+                                          "it's", "its", "itself", "they", "them", "their", "theirs", "themselves",
+                                          "what", "which", "who", "whom", "this", "that", "that'll", "these", "those",
+                                          "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+                                          "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if",
+                                          "or", "because", "as", "until", "while", "of", "at", "by", "for", "with",
+                                          "about", "against", "between", "into", "through", "during", "before", "after",
+                                          "above", "below", "to", "from", "up", "down", "in", "out", "on", "off",
+                                          "over", "under", "again", "further", "then", "once", "here", "there", "when",
+                                          "where", "why", "how", "all", "any", "both", "each", "few", "more", "most",
+                                          "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+                                          "than", "too", "very", "s", "t", "can", "will", "just", "don", "don't",
+                                          "should", "should've", "now", "d", "ll", "m", "o", "re", "ve", "y", "ain",
+                                          "aren", "aren't", "couldn", "couldn't", "didn", "didn't", "doesn", "doesn't",
+                                          "hadn", "hadn't", "hasn", "hasn't", "haven", "haven't", "isn", "isn't", "ma",
+                                          "mightn", "mightn't", "mustn", "mustn't", "needn", "needn't", "shan",
+                                          "shan't", "shouldn", "shouldn't", "wasn", "wasn't", "weren", "weren't", "won",
+                                          "won't", "wouldn", "wouldn't"]
                             # remove stop words from out["caption"]
-                            out["caption"] = ' '.join([word for word in out["caption"].split() if word.lower() not in stop_words])
+                            out["caption"] = ' '.join(
+                                [word for word in out["caption"].split() if word.lower() not in stop_words])
                     # print(out["caption"])
             else:
                 out["caption"] = raw_item["caption"]
@@ -788,7 +813,8 @@ def center_crop_arr(pil_image, image_size, segs=None):
     )
     if segs is not None:
         segs = [Image.fromarray(seg) for seg in segs]
-        segs = [seg.resize(tuple(round(x * scale) for x in pil_image.size), resample=Image.Resampling.NEAREST) for seg in segs]
+        segs = [seg.resize(tuple(round(x * scale) for x in pil_image.size), resample=Image.Resampling.NEAREST) for seg
+                in segs]
         segs = [np.array(seg) for seg in segs]
         segs = np.stack(segs)
 
@@ -798,10 +824,11 @@ def center_crop_arr(pil_image, image_size, segs=None):
     arr = np.array(pil_image)
     crop_y = (arr.shape[0] - image_size) // 2
     crop_x = (arr.shape[1] - image_size) // 2
-    
-    info = {"performed_scale":performed_scale, 'crop_y':crop_y, 'crop_x':crop_x, "WW":WW, 'HH':HH}
 
-    return arr[crop_y : crop_y + image_size, crop_x : crop_x + image_size], info, segs[:, crop_y : crop_y + image_size, crop_x : crop_x + image_size] if segs is not None else None
+    info = {"performed_scale": performed_scale, 'crop_y': crop_y, 'crop_x': crop_x, "WW": WW, 'HH': HH}
+
+    return arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size], info, segs[:, crop_y: crop_y + image_size,
+                                                                                crop_x: crop_x + image_size] if segs is not None else None
 
 
 def random_crop_arr(pil_image, image_size, min_crop_frac=0.8, max_crop_frac=1.0):
@@ -825,4 +852,4 @@ def random_crop_arr(pil_image, image_size, min_crop_frac=0.8, max_crop_frac=1.0)
     arr = np.array(pil_image)
     crop_y = random.randrange(arr.shape[0] - image_size + 1)
     crop_x = random.randrange(arr.shape[1] - image_size + 1)
-    return arr[crop_y : crop_y + image_size, crop_x : crop_x + image_size]
+    return arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size]

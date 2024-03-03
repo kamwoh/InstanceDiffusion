@@ -1,11 +1,15 @@
-import os
 import json
+import os
+
 import torch
 from torch.utils.data import Dataset
+
 from dataset.decode_item import decode
+
 
 class JsonDataset(Dataset):
     """Custom dataset."""
+
     def __init__(self, text_file, root_dir="/fsx-muvigen/xudongw/xudongw/DATASETS/", decode_func=None, config=None):
         """
         Arguments:
@@ -51,19 +55,20 @@ class JsonDataset(Dataset):
 
 def sub_batch(batch, num=1):
     # choose first num samples in given batch 
-    num = num if num > 1 else 1 
+    num = num if num > 1 else 1
     for k in batch:
         batch[k] = batch[k][0:num]
     return batch
+
 
 def batch_to_device(batch, device):
     for k in batch:
         if isinstance(batch[k], torch.Tensor):
             batch[k] = batch[k].to(device)
         if isinstance(batch[k], list):
-            for i in range(len(batch[k])): # check all dicts in list
+            for i in range(len(batch[k])):  # check all dicts in list
                 if isinstance(batch[k][i], dict):
-                    for j in batch[k][i]: # check all keys in dict
+                    for j in batch[k][i]:  # check all keys in dict
                         if isinstance(batch[k][i][j], torch.Tensor):
                             batch[k][i][j] = batch[k][i][j].to(device)
     return batch
