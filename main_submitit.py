@@ -95,6 +95,8 @@ def get_args_parser():
                         help="using instance loss")
     parser.add_argument("--instance_loss_weight", type=float, default=0.0, help="weights for instance loss")
     parser.add_argument('--output_dir', default='OUTPUT_DIR')
+    parser.add_argument('--gpu', default=0, type=int)
+    parser.add_argument('--rank', default=0, type=int)
 
     return parser
 
