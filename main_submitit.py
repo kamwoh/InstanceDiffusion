@@ -94,6 +94,7 @@ def get_args_parser():
     parser.add_argument("--use_instance_loss", type=lambda x: x.lower() == "true", default=False,
                         help="using instance loss")
     parser.add_argument("--instance_loss_weight", type=float, default=0.0, help="weights for instance loss")
+    parser.add_argument('--output_dir', default='OUTPUT_DIR')
 
     return parser
 
