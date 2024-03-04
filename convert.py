@@ -65,6 +65,7 @@ def find_bounding_box(mask):
 
     # Return the bounding box as (top-left) and (bottom-right) coordinates
     box = [min_col.item(), min_row.item(), max_col.item(), max_row.item()]
+    box = [int(b / 224 * 512) for b in box]
     box_xywh = [box[0], box[1], box[2] - box[0], box[3] - box[1]]
     return box_xywh
 
@@ -115,8 +116,8 @@ def get_anno(mask, caption):
     return anno
 
 
-def get_output(file_name, data_id, masks, captions):
-    image = Image.open(file_name)
+def get_output(image, file_name, data_id, masks, captions):
+    # image = Image.open(file_name)
     image_base64 = encode_pillow_to_base64(image)
 
     annos = []
@@ -136,23 +137,77 @@ def get_output(file_name, data_id, masks, captions):
     }
 
 
-lines = open('train.txt').readlines()
+from dino import DINO
+from kmeans_segmentation import KMeansSegmentation
+
+dino = DINO().cuda()
+seg = KMeansSegmentation('data/cub200_2011/pretrained_kmeans.pth')
+
+lines = open('data/cub200_2011/train.txt').readlines()
+
+MAPPING = {
+    0: 'body',
+    1: 'tail',
+    2: 'head',
+    4: 'wing',
+    6: 'leg',
+    7: 'background'
+}
+class_names = open('data/cub200_2011/class_names.txt').readlines()
+
 new_lines = []
+new_jsons = []
 
-for i, line in enumerate(lines):
-    path, _ = line.strip().split(' ')
-    json_path = path.replace('images', 'jsons')
+from tqdm.auto import tqdm
+from torchvision.transforms import transforms
+import torch.nn.functional as F
+
+centercrop = transforms.Compose([transforms.Resize(512), transforms.CenterCrop(512)])
+
+for i, line in tqdm(enumerate(lines), total=len(lines)):
+    path, clsid = line.strip().split(' ')
+    json_path = path.replace('train', 'json')
     json_path = os.path.splitext(json_path)[0] + '.json'
+    new_path = json_path.replace('/json/', '/resized/').replace('.json', '.jpeg')
+    
+    image = Image.open(path)
+    
+    w, h = image.size
+    
+    resizedcrop = centercrop(image)
+    
+    with torch.no_grad():
+        dino_input = dino.preprocess([image], size=224).cuda()
+        dino_ft = dino.get_feat_maps(dino_input)
+        segmasks, appeared_tokens = seg.get_segmask(dino_ft, True)
+        segmasks = F.interpolate(segmasks.float(), (224, 224), mode='bilinear') > 0.5
 
-    masks = None
-    captions = None
+    masks = []
+    captions = []
+    for a in appeared_tokens[0]:
+        if a == 7:
+            continue
+            
+        mask = segmasks[0, a]
+        masks.append(mask)
+        captions.append(class_names[int(clsid)].strip() + ' ' + MAPPING[a] + '.')
 
-    output = get_output(path, i, masks, captions)
+    output = get_output(resizedcrop, new_path, i, masks, captions)
+    
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    os.makedirs(os.path.dirname(new_path), exist_ok=True)
     with open(json_path, 'w+') as f:
         json.dump(output, f)
 
-    new_lines.append(json_path)
+    resizedcrop.save(new_path)
 
-with open('train_json.txt', 'w+') as f:
+    new_lines.append(new_path + ' ' + clsid)
+    new_jsons.append(json_path)
+
+with open('data/cub200_2011/train_json.txt', 'w+') as f:
+    for line in new_jsons:
+        f.write(line + '\n')
+        
+with open('data/cub200_2011/train_resized.txt', 'w+') as f:
     for line in new_lines:
         f.write(line + '\n')

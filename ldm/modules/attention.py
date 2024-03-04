@@ -135,12 +135,12 @@ class CrossAttention(nn.Module):
             # Flash attention requires q,k,v to have the same last dimension and to be a multiple of 8 and less than
             # or equal to 128. If the last dimension of q,k,v is larger than 128, we cannot use flash_attention. 
             # https://github.com/Dao-AILab/flash-attention/issues/108
-            if C <= 128:
-                with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-                    out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
-            else:
-                with torch.backends.cuda.sdp_kernel(enable_flash=False):
-                    out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+            # if C <= 128:
+            #     with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
+            #         out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+            # else:
+            with torch.backends.cuda.sdp_kernel(enable_flash=False):
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
             out = out.contiguous().view(B,H,N,C).permute(0,2,1,3).reshape(B,N,(H*C)) # B*N*(H*C)
         else:
             q = q.reshape(B*H,N,C) # (B*H)*N*C
@@ -258,12 +258,12 @@ class SelfAttention(nn.Module):
             # Flash attention requires q,k,v to have the same last dimension and to be a multiple of 8 and less than
             # or equal to 128. If the last dimension of q,k,v is larger than 128, we cannot use flash_attention. 
             # https://github.com/Dao-AILab/flash-attention/issues/108
-            if C <= 128:
-                with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-                    out = F.scaled_dot_product_attention(q, k, v, attn_mask=att_masks_)
-            else:
-                with torch.backends.cuda.sdp_kernel(enable_flash=False):
-                    out = F.scaled_dot_product_attention(q, k, v, attn_mask=att_masks_)
+            # if C <= 128:
+            #     with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
+            #         out = F.scaled_dot_product_attention(q, k, v, attn_mask=att_masks_)
+            # else:
+            with torch.backends.cuda.sdp_kernel(enable_flash=False):
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=att_masks_)
             out = out.contiguous().view(B,H,N,C).permute(0,2,1,3).reshape(B,N,(H*C)) # B*N*(H*C)
         else:
             q = q.reshape(B*H,N,C) # (B*H)*N*C

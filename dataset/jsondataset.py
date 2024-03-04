@@ -49,7 +49,9 @@ class JsonDataset(Dataset):
             f.close()
         except:
             # show error message and return None
-            assert 1 == 0, os.path.join(self.root_dir, self.train_files[idx])
+            # assert 1 == 0, os.path.join(self.root_dir, self.train_files[idx])
+            print(os.path.join(self.root_dir, self.train_files[idx]))
+            raise
         return data
 
 
